@@ -1,0 +1,20 @@
+{
+    "name": "nekoime-analyser",
+    "version": "0.0.1",
+    "dependencies": {
+        "underscore": "^1.6.0",
+        "underscore.string": "^2.3.3",
+        "opencc": "^1.0.0"
+    },
+    "main": "analyser.js",
+    "repository": {
+        "type": "git",
+        "url": "git://github.com/nekoime/nekoime-analyser.git"
+    },
+    "author": "zh99998 <zh99998@gmail.com>",
+    "license": "GPLv3",
+    "bugs": {
+        "url": "https://github.com/nekoime/nekoime-analyser/issues"
+    },
+    "homepage": "https://github.com/nekoime/nekoime-analyser"
+}
