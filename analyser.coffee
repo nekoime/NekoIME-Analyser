@@ -32,39 +32,70 @@ combinations = (word, allow_whole = false)->
 
 if process.argv[0]
   console.error "load #{process.argv.length - 2} files"
-  words = {} #{word: count}
-  sentences = []
+  words = {} #{word: {count, left_neibors, right_neibors}}
+  chars = {} #单字
+  total_length = 0
   for file in process.argv.slice(2)
     article = fs.readFileSync file, encoding: 'utf8'
+    article = article.replace /[^\u4E00-\u9FA5]+/g, ''
+    continue if article.length == 0
     article = opencc.convertSync(article) #如果要禁用繁简转换，注释掉这一行
+    total_length += article.length
+    console.log '单字统计'
+    time = new Date()
+    for char in article
+      if chars[char]
+        chars[char]++
+      else
+        chars[char] = 1
+    console.log new Date() - time
 
-    #[\u4E00-\u9FA5]是中文所在范围
-    for sentence in article.split /[^\u4E00-\u9FA5]+/ when sentence.length > 0
-      sentences.push sentence
 
-      #求长度在 max_length 以下的所有子串，例如 "喵帕斯" 的子串有 "喵", "帕", "斯", "喵帕", "帕斯", "喵帕斯"
-      for length in [1..Math.min(max_length, sentence.length)]
-        for i in [0..sentence.length - length]
-          word = sentence.substr(i, length)
-          if words[word]
-            words[word]++
-          else
-            words[word] = 1
+    console.log '右邻字及词频'
+    time = new Date()
+    #for index in _.sortBy([0..article.length-2], (index)->article.substring(index))
+    #  w = article.substring(index, max_length)
+    #  for length in [2...w.length]
+    #    word = w.substring(0, length)
+    #    right_neibor = article[index+length]
+    #    statistics = words[word]
+    #    if statistics
+    #      statistics.count++
+    #      statistics.right_neibors[right_neibor]++
+    #    else
+    #      words[word] = { count: 1, left_neibors: {}, right_neibors: {right_neibor : 1}}
+    words = {}
 
-  console.error "load #{sentences.length} sentences"
+    for index in [0..article.length-2]
+      for length in [1..max_length]
+        word = article.substr(index, length)
+        statistics = words[word]
+        if statistics
+          statistics.count++
+        else
+          statistics = words[word] = {count: 1, left_neibors:{}, right_neibors: {}}
+        left_neibor = article[index-1]
+        if statistics.left_neibors[left_neibor]
+          statistics.left_neibors[left_neibor]++
+        else
+          statistics.left_neibors[left_neibor] = 1
+
+        right_neibor = article[index+length]
+        if statistics.right_neibors[right_neibor]
+          statistics.right_neibors[right_neibor]++
+        else
+          statistics.right_neibors[right_neibor] = 1
+
+
+    console.log new Date() - time
 
   #重算一下全由一个字构成的词的词频，因为上面遍历出来的会导致有些词的词频增加，例如 "啊啊啊啊啊啊"应该只包含 2 个"啊啊啊"，但是按上面的方法拆分之后变成 4 个了
 
-  for word of words when words.length >= 2 and _.count(words, words[0]) == words.length
-    words[word] = _.reduce sentences, (memo, sentence)->
-      memo + _.count(sentence, word)
-    , 0
-  console.error "load #{_.size(words)} words"
-
-  #全语料总长度
-  total_length = _.reduce sentences, (memo, sentence)->
-    memo + sentence.length
-  , 0
+  #for word of words when words.length >= 2 and _.count(words, words[0]) == words.length
+  #  words[word] = _.reduce sentences, (memo, sentence)->
+  #    memo + _.count(sentence, word)
+  #  , 0
+  #console.error "load #{_.size(words)} words"
 
   min_frequencies = Math.log total_length
 
@@ -73,68 +104,43 @@ if process.argv[0]
   sysdict = _.lines fs.readFileSync('sysdict.txt', encoding: 'utf8')
   console.error "load #{sysdict.length} system words"
 
-  for word, count of words when count >= min_frequencies and word.length >= 2
+
+
+  for word, statistics of words when statistics.count >= min_frequencies
     #去除已知词库中的词
-    continue if word in sysdict
+    #continue if word in sysdict
 
     #凝固度
-
+    continue if word.length <= 2 # != "东山奈央东山"
     #候选词在语料中出现的概率
-    p = count / total_length
+    p = statistics.count / total_length
 
     #候选词的组成部分在语料中出现的概率
     p_combined = Math.max.apply this, (for combination in combinations word
       _.reduce combination, (memo, part)->
-        memo * words[part] / total_length
+        memo * (if part.length == 1 then chars[part] else words[part].count) / total_length
       , 1)
 
     cohesion = p / p_combined
+
     continue if cohesion < min_cohesion
 
     #自由度
 
 
-    left_neibors = {}
-    right_neibors = {}
-    left_border = 0
-    right_border = 0
-    for sentence in sentences
-
-      index = 0
-      while (index = sentence.indexOf(word, index)) != -1
-        left_neibor = sentence[index - 1]
-        index += word.length
-        right_neibor = sentence[index]
-
-        if left_neibor
-          if left_neibors[left_neibor]
-            left_neibors[left_neibor]++
-          else
-            left_neibors[left_neibor] = 1
-        else
-          left_border++
-
-        if right_neibor
-          if right_neibors[right_neibor]
-            right_neibors[right_neibor]++
-          else
-            right_neibors[right_neibor] = 1
-        else
-          right_border++
-
-    left_entropy = _.reduce left_neibors, (memo, c)->
-      memo + -Math.log(c / count) * c / (count - left_border)
+    left_entropy = _.reduce statistics.left_neibors, (memo, c)->
+      memo + -Math.log(c / statistics.count) * c / statistics.count
     , 0
 
     continue if left_entropy < min_entropy
 
-    right_entropy = _.reduce right_neibors, (memo, c)->
-      memo + -Math.log(c / count) * c / (count - right_border)
+    right_entropy = _.reduce statistics.right_neibors, (memo, c)->
+      memo + -Math.log(c / statistics.count) * c / statistics.count
     , 0
-
+    #console.log '-----------', statistics.right_neibors, parseInt(cohesion), right_entropy, left_entropy
     continue if right_entropy < min_entropy
 
-    console.log word, count, parseInt(cohesion), Math.min left_entropy, right_entropy
+    console.log word, statistics.count, parseInt(cohesion), left_entropy, right_entropy
 
   console.error 'done'
 
